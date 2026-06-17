@@ -76,6 +76,8 @@ VOCABULARY = {
     "gold", "silver", "platinum",
     "laptop", "tablet", "smartphone", "phone", "monitor",
     "desktop", "pc", "headphones",
+    "count", "many", "highest", "lowest",
+    "average", "sum", "top", "most", "least",
 }
 
 
