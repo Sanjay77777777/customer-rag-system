@@ -92,6 +92,8 @@ def normalize_question(question: str) -> str:
     result = " ".join(corrected)
     if result != original.lower():
         logger.info(f"Corrected query '{original}' -> '{result}'")
+    if len(result.split()) == 1:
+        result = f"customers matching {result}"
     return result
 
 
