@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+venv/
+.env
+.git/
+frontend/
+node_modules/
+chroma_db/
+customers.csv
+customers_dummy.csv

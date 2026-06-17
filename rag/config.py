@@ -4,5 +4,8 @@ CHROMA_DB_PATH = "./chroma_db"
 # Name of the ChromaDB collection that will hold customer embeddings
 COLLECTION_NAME = "customers"
 
-# Sentence-transformers model used to convert text into vector embeddings
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# Ollama model used to convert text into vector embeddings
+EMBEDDING_MODEL = "nomic-embed-text"
+
+# Ollama server host (use host.docker.internal when API runs in Docker)
+OLLAMA_HOST = "http://host.docker.internal:11434"

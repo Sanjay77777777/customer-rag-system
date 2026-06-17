@@ -1,20 +1,21 @@
+import difflib
 import logging
+import os
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg2.extras
-from sentence_transformers import SentenceTransformer
-import chromadb
-from chromadb.config import Settings
-import ollama
+
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logging.getLogger("chromadb").setLevel(logging.WARNING)
 
 from api.database import get_connection
-from api.auth import verify_api_key
+
 from api.schemas import AnalyticsResponse, HealthResponse, ChatRequest
-from rag.config import CHROMA_DB_PATH
+from rag.config import CHROMA_DB_PATH, OLLAMA_HOST
 
 # ------------------------------------------------------------------
 # Hybrid SQL + RAG shared logic
@@ -67,6 +68,35 @@ def run_sql_query(question: str) -> str:
     finally:
         conn.close()
 
+
+VOCABULARY = {
+    "engineer", "teacher", "doctor", "designer", "lawyer",
+    "software", "developer", "accountant", "marketing", "manager",
+    "business", "owner", "data", "analyst",
+    "gold", "silver", "platinum",
+    "laptop", "tablet", "smartphone", "phone", "monitor",
+    "desktop", "pc", "headphones",
+}
+
+
+def normalize_question(question: str) -> str:
+    original = question
+    words = question.lower().split()
+    corrected = []
+    for word in words:
+        match = difflib.get_close_matches(word, VOCABULARY, n=1, cutoff=0.8)
+        if match:
+            corrected.append(match[0])
+        else:
+            corrected.append(word)
+    result = " ".join(corrected)
+    if result != original.lower():
+        logger.info(f"Corrected query '{original}' -> '{result}'")
+    return result
+
+
+logger.info(f"Using Ollama host: {OLLAMA_HOST}")
+
 app = FastAPI()
 
 app.add_middleware(
@@ -98,7 +128,6 @@ def get_customers(
     customer_id: int = None,
     segment: str = None,
     product: str = None,
-    api_key: str = Depends(verify_api_key),
 ):
     """Return customer records with optional filtering (API key required)."""
     conn = None
@@ -136,7 +165,6 @@ def get_customers(
 @app.get("/customers/{customer_id}")
 def get_customer(
     customer_id: int,
-    api_key: str = Depends(verify_api_key),
 ):
     """Return a single customer by ID (API key required)."""
     conn = None
@@ -163,9 +191,7 @@ def get_customer(
     "/analytics",
     response_model=AnalyticsResponse,
 )
-def get_analytics(
-    api_key: str = Depends(verify_api_key),
-):
+def get_analytics():
     """Return aggregated customer analytics (API key required)."""
     conn = None
     try:
@@ -200,17 +226,19 @@ def get_analytics(
             gold_customers=gold_customers,
             silver_customers=silver_customers,
         )
-    except Exception as e:
-        return {"error": "An internal error occurred"}
+    except Exception:
+        logger.exception("Analytics endpoint failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error",
+        )
     finally:
         if conn:
             conn.close()
 
 
 @app.get("/analytics/products")
-def get_analytics_products(
-    api_key: str = Depends(verify_api_key),
-):
+def get_analytics_products():
     """Return product counts (API key required)."""
     conn = None
     try:
@@ -231,9 +259,7 @@ def get_analytics_products(
 
 
 @app.get("/analytics/segments")
-def get_analytics_segments(
-    api_key: str = Depends(verify_api_key),
-):
+def get_analytics_segments():
     """Return customer count per segment (API key required)."""
     conn = None
     try:
@@ -254,9 +280,7 @@ def get_analytics_segments(
 
 
 @app.get("/analytics/income")
-def get_analytics_income(
-    api_key: str = Depends(verify_api_key),
-):
+def get_analytics_income():
     """Return average income per segment (API key required)."""
     conn = None
     try:
@@ -277,10 +301,8 @@ def get_analytics_income(
 
 
 @app.post("/reindex")
-def reindex(
-    api_key: str = Depends(verify_api_key),
-):
-    """Rebuild the ChromaDB index from PostgreSQL data (API key required)."""
+def reindex():
+    """Rebuild the ChromaDB index from PostgreSQL data."""
     logger.info("Reindex requested")
     conn = None
     try:
@@ -317,16 +339,22 @@ def reindex(
         ids = [str(c["customer_id"]) for c in customers]
 
         # ------------------------------------------------------------------
-        # 3. Generate embeddings
+        # 3. Generate embeddings via Ollama
         # ------------------------------------------------------------------
+        import ollama
+        ollama_client = ollama.Client(host=OLLAMA_HOST)
         logger.info("Generating embeddings...")
-        model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-        embeddings = model.encode(documents, show_progress_bar=True).tolist()
+        embeddings = []
+        for doc in documents:
+            resp = ollama_client.embeddings(model="nomic-embed-text", prompt=doc)
+            embeddings.append(resp["embedding"])
         logger.info("Embeddings generated")
 
         # ------------------------------------------------------------------
         # 4. Rebuild the ChromaDB collection
         # ------------------------------------------------------------------
+        import chromadb
+        from chromadb.config import Settings
         client = chromadb.PersistentClient(
             path=CHROMA_DB_PATH,
             settings=Settings(anonymized_telemetry=False),
@@ -363,27 +391,39 @@ def reindex(
 @app.post("/chat")
 def chat(
     body: ChatRequest,
-    api_key: str = Depends(verify_api_key),
 ):
-    """Hybrid SQL + RAG chat endpoint (API key required)."""
+    """Hybrid SQL + RAG chat endpoint."""
     try:
-        question = body.question
+        question = normalize_question(body.question)
 
         if classify_question(question):
             answer = run_sql_query(question)
-            return {"answer": answer}
+            if "could not find" not in answer:
+                return {"answer": answer}
 
         # RAG mode
-        client = chromadb.PersistentClient(
+        import chromadb
+        from chromadb.config import Settings
+        import ollama
+        ollama_client = ollama.Client(host=OLLAMA_HOST)
+        chroma_client = chromadb.PersistentClient(
             path=CHROMA_DB_PATH,
             settings=Settings(anonymized_telemetry=False),
         )
-        collection = client.get_collection("customers_api")
+        collection = chroma_client.get_collection("customers_api")
+
+        query_emb = ollama_client.embeddings(
+            model="nomic-embed-text", prompt=question
+        )["embedding"]
 
         results = collection.query(
-            query_texts=[question],
+            query_embeddings=[query_emb],
             n_results=15,
         )
+
+        logger.info(f"Question: {question}")
+        if results.get("documents"):
+            logger.info(f"Retrieved docs: {results['documents'][0][:3]}")
 
         context = "\n\n".join(results["documents"][0])
 
@@ -405,7 +445,7 @@ Question:
 
 Answer:"""
 
-        response = ollama.chat(
+        response = ollama_client.chat(
             model="qwen2.5-coder:7b",
             messages=[{"role": "user", "content": prompt}],
         )

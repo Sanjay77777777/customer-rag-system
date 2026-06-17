@@ -2,9 +2,6 @@ import axios from "axios";
 
 const client = axios.create({
   baseURL: "/api",
-  headers: {
-    "X-API-KEY": import.meta.env.VITE_API_KEY || "",
-  },
 });
 
 export function getCustomers(params = {}) {
