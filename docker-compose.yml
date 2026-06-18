@@ -1,24 +1,49 @@
-#version: "3.9"
+# ---------------------------------------------------------------------------
+# DOCKER COMPOSE — Customer RAG System
+# ---------------------------------------------------------------------------
+# Orchestrates two containers: backend (FastAPI) and frontend (React + nginx).
+#
+# Usage:
+#   docker compose up          # build & start both services
+#   docker compose down        # stop & remove containers
+#   docker compose up --build  # rebuild images before starting
+#
+# PostgreSQL and Ollama are NOT included here — they run externally on the
+# host machine and are reached via host.docker.internal (see .env file).
+
+version: "3.9"
 
 services:
+
+  # -----------------------------------------------------------------------
+  # BACKEND SERVICE — FastAPI application (port 8000)
+  # -----------------------------------------------------------------------
+  # Serves the REST API that the frontend communicates with.
+  # Reads database credentials and Ollama host from .env file.
   backend:
     image: customer-rag-api
     container_name: customer-rag-api
     build:
-      context: .
+      context: .            # Use the root Dockerfile
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8000:8000"         # Host:8000 → Container:8000
     env_file:
-      - .env
+      - .env                # Injects POSTGRES_*, API_KEY variables
 
+  # -----------------------------------------------------------------------
+  # FRONTEND SERVICE — React SPA served by nginx (port 3000)
+  # -----------------------------------------------------------------------
+  # Production build of the React app served by nginx:alpine.
+  # nginx proxies /api/* requests to host.docker.internal:8000 (the backend).
+  # Port 3000 is used instead of 80 to avoid conflicts with other services.
   frontend:
     image: customer-rag-ui
     container_name: customer-rag-ui
     build:
-      context: ./frontend
+      context: ./frontend    # Use frontend/Dockerfile
       dockerfile: Dockerfile
     ports:
-      - "3000:80"
+      - "3000:80"            # Host:3000 → Container:80 (nginx default)
     depends_on:
-      - backend
+      - backend              # Wait for backend to start before frontend

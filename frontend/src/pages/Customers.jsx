@@ -1,7 +1,16 @@
+// ---------------------------------------------------------------------------
+// CUSTOMERS PAGE
+// ---------------------------------------------------------------------------
+// Displays a filterable table of all customer records. Three filters are
+// available (customer ID, segment, product) and the data refetches
+// automatically when any filter changes via the useEffect dependency array.
+
 import { useEffect, useState } from "react";
 import { getCustomers } from "../services/api";
 import CustomerTable from "../components/CustomerTable";
 
+// Dropdown options for the segment and product filters.
+// "All" means no filter (all values are returned).
 const SEGMENTS = ["All", "Silver", "Gold", "Platinum"];
 const PRODUCTS = ["All", "Laptop", "Tablet", "Phone", "Monitor", "Headphones"];
 
@@ -10,10 +19,12 @@ export default function Customers() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Filter state — each change triggers a refetch
   const [customerId, setCustomerId] = useState("");
   const [segment, setSegment] = useState("All");
   const [product, setProduct] = useState("All");
 
+  // Build query params object, omitting filters set to "All" or empty
   function buildParams() {
     const params = {};
     if (customerId) params.customer_id = customerId;
@@ -22,12 +33,14 @@ export default function Customers() {
     return params;
   }
 
+  // Count how many filters are active (for the clear button badge)
   const activeFilterCount = [
     !!customerId,
     segment !== "All",
     product !== "All",
   ].filter(Boolean).length;
 
+  // Fetch customer data from the API
   function fetchData() {
     setLoading(true);
     setError(null);
@@ -37,10 +50,12 @@ export default function Customers() {
       .finally(() => setLoading(false));
   }
 
+  // Refetch whenever any filter changes
   useEffect(() => {
     fetchData();
   }, [customerId, segment, product]);
 
+  // Reset all filters to their default values
   function clearFilters() {
     setCustomerId("");
     setSegment("All");

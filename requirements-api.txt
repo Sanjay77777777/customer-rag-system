@@ -1,5 +1,15 @@
-fastapi>=0.115.0,<1.0.0
-uvicorn>=0.32.0,<1.0.0
-pydantic>=2.0.0,<3.0.0
-psycopg2-binary>=2.9.0,<3.0.0
-python-dotenv>=1.0.0,<2.0.0
+# ---------------------------------------------------------------------------
+# API DEPENDENCIES
+# ---------------------------------------------------------------------------
+# These are the minimum packages needed to start the FastAPI application.
+# RAG functionality (ChromaDB, Ollama) is imported lazily and requires
+# the packages in requirements-rag.txt.
+#
+# Version ranges use carets (>=) to allow patch/minor updates while
+# preventing major breaking changes (< next major version).
+
+fastapi>=0.115.0,<1.0.0    # Web framework for building the REST API
+uvicorn>=0.32.0,<1.0.0     # ASGI server that runs the FastAPI app
+pydantic>=2.0.0,<3.0.0     # Request/response validation and serialization
+psycopg2-binary>=2.9.0,<3.0.0  # PostgreSQL database adapter
+python-dotenv>=1.0.0,<2.0.0    # Load .env file into environment variables
